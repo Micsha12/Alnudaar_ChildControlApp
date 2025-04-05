@@ -1,0 +1,25 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.13.35825.156 d17.13
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Alnudaar_ChildControlApp", "Alnudaar_ChildControlApp\Alnudaar_ChildControlApp.csproj", "{B6AD1AF2-8D85-43FA-AFC7-90038746D4A8}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{B6AD1AF2-8D85-43FA-AFC7-90038746D4A8}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B6AD1AF2-8D85-43FA-AFC7-90038746D4A8}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B6AD1AF2-8D85-43FA-AFC7-90038746D4A8}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B6AD1AF2-8D85-43FA-AFC7-90038746D4A8}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {F7A36370-F720-4C7E-9F58-BF2A6CCB6A38}
+	EndGlobalSection
+EndGlobal
