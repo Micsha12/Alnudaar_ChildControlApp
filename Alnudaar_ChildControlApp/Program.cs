@@ -1,7 +1,22 @@
-using Alnudaar_ChildControlApp;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 
-var builder = Host.CreateApplicationBuilder(args);
-builder.Services.AddHostedService<Worker>();
+namespace Alnudaar_ChildControlApp
+{
+    public class Program
+    {
+        public static void Main(string[] args)
+        {
+            CreateHostBuilder(args).Build().Run();
+        }
 
-var host = builder.Build();
-host.Run();
+        public static IHostBuilder CreateHostBuilder(string[] args) =>
+            Host.CreateDefaultBuilder(args)
+                .UseWindowsService()
+                .ConfigureServices(services =>
+                {
+                    services.AddSingleton<DatabaseService>();
+                    services.AddHostedService<Worker>();
+                });
+    }
+}
