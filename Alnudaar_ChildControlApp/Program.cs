@@ -12,7 +12,7 @@ namespace Alnudaar_ChildControlApp
 
         public static IHostBuilder CreateHostBuilder(string[] args) =>
             Host.CreateDefaultBuilder(args)
-                .UseWindowsService()
+                //.UseWindowsService()
                 .ConfigureServices(services =>
                 {
                     services.AddSingleton<DatabaseService>();

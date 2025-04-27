@@ -1,4 +1,5 @@
 using Alnudaar_ChildControlApp.Models;
+using System.Text.Json;
 
 namespace Alnudaar_ChildControlApp
 {
@@ -21,6 +22,8 @@ namespace Alnudaar_ChildControlApp
                 _logger.LogError("Device name is not set. Exiting application.");
                 return;
             }
+
+            _logger.LogInformation("Worker started.");
 
             while (!stoppingToken.IsCancellationRequested)
             {
@@ -54,26 +57,24 @@ namespace Alnudaar_ChildControlApp
                 if (response.IsSuccessStatusCode)
                 {
                     string jsonData = await response.Content.ReadAsStringAsync(stoppingToken);
-                    var device = System.Text.Json.JsonSerializer.Deserialize<Device>(jsonData);
+                    _logger.LogInformation("Raw JSON Response: {JsonData}", jsonData);
 
-                    // Save data to the local database
-                    if (device != null)
+                    var options = new JsonSerializerOptions
                     {
+                        PropertyNameCaseInsensitive = true,
+                        PropertyNamingPolicy = JsonNamingPolicy.CamelCase // Enable camelCase deserialization
+                    };
+                    var device = System.Text.Json.JsonSerializer.Deserialize<Device>(jsonData, options);
+
+                    if (device != null && device.DeviceID > 0 && !string.IsNullOrEmpty(device.Name) && device.UserID > 0)
+                    {
+                        _logger.LogInformation("Deserialized Device: ID={DeviceID}, Name={Name}, UserID={UserID}", device.DeviceID, device.Name, device.UserID);
                         _databaseService.SaveDeviceInfo(device);
-
-                        if (device.ScreenTimeSchedules != null)
-                        {
-                            _databaseService.SaveScreenTimeSchedules(device.ScreenTimeSchedules);
-                        }
-
-                        _logger.LogInformation("Device data updated successfully.");
                     }
                     else
                     {
-                        _logger.LogWarning("Deserialized device is null.");
+                        _logger.LogWarning("Invalid device data. DeviceID={DeviceID}, Name={Name}, UserID={UserID}", device?.DeviceID, device?.Name, device?.UserID);
                     }
-
-                    _logger.LogInformation("Device data updated successfully.");
                 }
                 else
                 {
@@ -84,6 +85,39 @@ namespace Alnudaar_ChildControlApp
             {
                 _logger.LogError(ex, "Error fetching device data.");
             }
+        }
+
+        private async Task FetchAndSaveAdditionalData(int deviceId, CancellationToken stoppingToken)
+        {
+            using var httpClient = new HttpClient();
+
+            // Fetch Geofencing data
+            string geofencingUrl = $"https://localhost:7200/api/devices/{deviceId}/geofencing";
+            HttpResponseMessage geofencingResponse = await httpClient.GetAsync(geofencingUrl, stoppingToken);
+            if (geofencingResponse.IsSuccessStatusCode)
+            {
+                string geofencingJson = await geofencingResponse.Content.ReadAsStringAsync(stoppingToken);
+                var geofencingData = System.Text.Json.JsonSerializer.Deserialize<List<Geofencing>>(geofencingJson);
+                if (geofencingData != null)
+                {
+                    _databaseService.SaveGeofencingData(geofencingData);
+                }
+            }
+
+            // Fetch BlockRules data
+            string blockRulesUrl = $"https://localhost:7200/api/devices/{deviceId}/blockrules";
+            HttpResponseMessage blockRulesResponse = await httpClient.GetAsync(blockRulesUrl, stoppingToken);
+            if (blockRulesResponse.IsSuccessStatusCode)
+            {
+                string blockRulesJson = await blockRulesResponse.Content.ReadAsStringAsync(stoppingToken);
+                var blockRulesData = System.Text.Json.JsonSerializer.Deserialize<List<BlockRule>>(blockRulesJson);
+                if (blockRulesData != null)
+                {
+                    _databaseService.SaveBlockRules(blockRulesData);
+                }
+            }
+
+            // Add similar logic for other data types if needed
         }
     }
 }

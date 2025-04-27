@@ -94,8 +94,9 @@ namespace Alnudaar_ChildControlApp
 
             using var command = new SqliteCommand(insertQuery, connection);
             command.Parameters.AddWithValue("@deviceID", device.DeviceID);
-            command.Parameters.AddWithValue("@name", device.Name);
+            command.Parameters.AddWithValue("@name", device.Name); // Handle null Name
             command.Parameters.AddWithValue("@userID", device.UserID);
+
             command.ExecuteNonQuery();
         }
 
@@ -121,7 +122,51 @@ namespace Alnudaar_ChildControlApp
                 command.ExecuteNonQuery();
             }
         }
+        public void SaveGeofencingData(IEnumerable<Geofencing> geofencingData)
+        {
+            using var connection = new SqliteConnection($"Data Source={DbFilePath}");
+            connection.Open();
 
+            string insertQuery = @"
+                INSERT INTO Geofencing (GeofencingID, UserID, SafeZoneName, Latitude, Longitude, Radius)
+                VALUES (@geofencingID, @userID, @safeZoneName, @latitude, @longitude, @radius);
+            ";
+
+            foreach (var geofence in geofencingData)
+            {
+                using var command = new SqliteCommand(insertQuery, connection);
+                command.Parameters.AddWithValue("@geofencingID", geofence.GeofencingID);
+                command.Parameters.AddWithValue("@userID", geofence.UserID);
+                command.Parameters.AddWithValue("@safeZoneName", geofence.SafeZoneName);
+                command.Parameters.AddWithValue("@latitude", geofence.Latitude);
+                command.Parameters.AddWithValue("@longitude", geofence.Longitude);
+                command.Parameters.AddWithValue("@radius", geofence.Radius);
+                command.ExecuteNonQuery();
+            }
+        }
+
+        public void SaveBlockRules(IEnumerable<BlockRule> blockRules)
+        {
+            using var connection = new SqliteConnection($"Data Source={DbFilePath}");
+            connection.Open();
+
+            string insertQuery = @"
+                INSERT INTO BlockRule (BlockRuleID, UserID, Type, Value, TimeRange, DeviceID)
+                VALUES (@blockRuleID, @userID, @type, @value, @timeRange, @deviceID);
+            ";
+
+            foreach (var blockRule in blockRules)
+            {
+                using var command = new SqliteCommand(insertQuery, connection);
+                command.Parameters.AddWithValue("@blockRuleID", blockRule.BlockRuleID);
+                command.Parameters.AddWithValue("@userID", blockRule.UserID);
+                command.Parameters.AddWithValue("@type", blockRule.Type);
+                command.Parameters.AddWithValue("@value", blockRule.Value);
+                command.Parameters.AddWithValue("@timeRange", blockRule.TimeRange);
+                command.Parameters.AddWithValue("@deviceID", blockRule.DeviceID);
+                command.ExecuteNonQuery();
+            }
+        }
         // Add similar methods for other models like Geofencing, BlockRule, etc.
     }
 }
