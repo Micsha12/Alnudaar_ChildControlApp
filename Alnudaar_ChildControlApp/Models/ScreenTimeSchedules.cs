@@ -10,6 +10,7 @@ namespace Alnudaar_ChildControlApp.Models
         public string? DayOfWeek { get; set; }
 
         // Navigation properties
+        public User? User { get; set; }
         public Device? Device { get; set; }
     }
 }

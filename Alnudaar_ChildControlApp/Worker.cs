@@ -27,7 +27,16 @@ namespace Alnudaar_ChildControlApp
 
             while (!stoppingToken.IsCancellationRequested)
             {
-                await FetchAndUpdateDeviceData(deviceName, stoppingToken);
+                int deviceId = await FetchAndUpdateDeviceData(deviceName, stoppingToken);
+                if (deviceId > 0)
+                {
+                    await FetchAndSaveAdditionalData(deviceId, stoppingToken);
+                }
+                else
+                {
+                    _logger.LogWarning("Failed to retrieve DeviceID for device name: {DeviceName}", deviceName);
+                }
+
                 await Task.Delay(TimeSpan.FromMinutes(5), stoppingToken);
             }
         }
@@ -46,7 +55,7 @@ namespace Alnudaar_ChildControlApp
             return deviceName;
         }
 
-        private async Task FetchAndUpdateDeviceData(string deviceName, CancellationToken stoppingToken)
+        private async Task<int> FetchAndUpdateDeviceData(string deviceName, CancellationToken stoppingToken)
         {
             try
             {
@@ -69,7 +78,26 @@ namespace Alnudaar_ChildControlApp
                     if (device != null && device.DeviceID > 0 && !string.IsNullOrEmpty(device.Name) && device.UserID > 0)
                     {
                         _logger.LogInformation("Deserialized Device: ID={DeviceID}, Name={Name}, UserID={UserID}", device.DeviceID, device.Name, device.UserID);
+
+                        // Save the user if it doesn't exist
+                        if (!_databaseService.UserExists(device.UserID))
+                        {
+                            var user = new User
+                            {
+                                UserID = device.UserID,
+                                UserName = "DefaultUser", // Replace with actual user data if available
+                                Email = "default@example.com" // Replace with actual email if available
+                            };
+                            _databaseService.SaveUser(user);
+                            _logger.LogInformation("User added: UserID={UserID}", user.UserID);
+                        }
+
+                        // Save the device
                         _databaseService.SaveDeviceInfo(device);
+                        _databaseService.SaveDevicesInfo(device);
+                        _logger.LogInformation("Device added: DeviceID={DeviceID}, Name={Name}", device.DeviceID, device.Name);
+
+                        return device.DeviceID; // Return the DeviceID
                     }
                     else
                     {
@@ -85,39 +113,83 @@ namespace Alnudaar_ChildControlApp
             {
                 _logger.LogError(ex, "Error fetching device data.");
             }
-        }
 
+            return 0; // Return 0 if the DeviceID could not be retrieved
+        }
         private async Task FetchAndSaveAdditionalData(int deviceId, CancellationToken stoppingToken)
         {
             using var httpClient = new HttpClient();
 
-            // Fetch Geofencing data
-            string geofencingUrl = $"https://localhost:7200/api/devices/{deviceId}/geofencing";
-            HttpResponseMessage geofencingResponse = await httpClient.GetAsync(geofencingUrl, stoppingToken);
-            if (geofencingResponse.IsSuccessStatusCode)
+            // Fetch Screen Time Schedule data
+            string screenTimeScheduleUrl = $"https://localhost:7200/api/ScreenTimeSchedule/devices/{deviceId}";
+            HttpResponseMessage screenTimeScheduleResponse = await httpClient.GetAsync(screenTimeScheduleUrl, stoppingToken);
+            if (screenTimeScheduleResponse.IsSuccessStatusCode)
             {
-                string geofencingJson = await geofencingResponse.Content.ReadAsStringAsync(stoppingToken);
-                var geofencingData = System.Text.Json.JsonSerializer.Deserialize<List<Geofencing>>(geofencingJson);
-                if (geofencingData != null)
+                string screenTimeScheduleJson = await screenTimeScheduleResponse.Content.ReadAsStringAsync(stoppingToken);
+
+                var options = new JsonSerializerOptions
                 {
-                    _databaseService.SaveGeofencingData(geofencingData);
+                    PropertyNameCaseInsensitive = true,
+                    PropertyNamingPolicy = JsonNamingPolicy.CamelCase // Enable camelCase deserialization
+                };
+
+                var screenTimeScheduleData = System.Text.Json.JsonSerializer.Deserialize<List<ScreenTimeSchedule>>(screenTimeScheduleJson, options);
+                if (screenTimeScheduleData != null)
+                {
+                    foreach (var schedule in screenTimeScheduleData)
+                    {
+                        if (schedule.DeviceID == null || string.IsNullOrWhiteSpace(schedule.DayOfWeek) ||
+                            string.IsNullOrWhiteSpace(schedule.StartTime) || string.IsNullOrWhiteSpace(schedule.EndTime))
+                        {
+                            _logger.LogWarning("Skipping invalid ScreenTimeSchedule: DeviceID={DeviceID}, UserID={UserID}, DayOfWeek={DayOfWeek}, StartTime={StartTime}, EndTime={EndTime}",
+                                schedule.DeviceID, schedule.UserID, schedule.DayOfWeek, schedule.StartTime, schedule.EndTime);
+                            continue;
+                        }
+
+                        _logger.LogInformation("Processing ScreenTimeSchedule: DeviceID={DeviceID}, UserID={UserID}, DayOfWeek={DayOfWeek}, StartTime={StartTime}, EndTime={EndTime}",
+                            schedule.DeviceID, schedule.UserID, schedule.DayOfWeek, schedule.StartTime, schedule.EndTime);
+                    }
+
+                    _databaseService.SaveScreenTimeSchedules(screenTimeScheduleData);
                 }
+                else
+                {
+                    _logger.LogWarning("Failed to deserialize Screen Time Schedule data.");
+                }
+            }
+            else
+            {
+                _logger.LogWarning("Failed to fetch Screen Time Schedule data. Status Code: {StatusCode}", screenTimeScheduleResponse.StatusCode);
             }
 
             // Fetch BlockRules data
-            string blockRulesUrl = $"https://localhost:7200/api/devices/{deviceId}/blockrules";
+            string blockRulesUrl = $"https://localhost:7200/api/BlockRules/devices/{deviceId}";
             HttpResponseMessage blockRulesResponse = await httpClient.GetAsync(blockRulesUrl, stoppingToken);
             if (blockRulesResponse.IsSuccessStatusCode)
             {
                 string blockRulesJson = await blockRulesResponse.Content.ReadAsStringAsync(stoppingToken);
-                var blockRulesData = System.Text.Json.JsonSerializer.Deserialize<List<BlockRule>>(blockRulesJson);
+
+                var options = new JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true,
+                    PropertyNamingPolicy = JsonNamingPolicy.CamelCase // Enable camelCase deserialization
+                };
+
+                var blockRulesData = System.Text.Json.JsonSerializer.Deserialize<List<BlockRule>>(blockRulesJson, options);
                 if (blockRulesData != null)
                 {
+                    _logger.LogInformation("Deserialized BlockRules Data: Count={Count}", blockRulesData.Count);
                     _databaseService.SaveBlockRules(blockRulesData);
                 }
+                else
+                {
+                    _logger.LogWarning("Failed to deserialize BlockRules data.");
+                }
             }
-
-            // Add similar logic for other data types if needed
+            else
+            {
+                _logger.LogWarning("Failed to fetch BlockRules data. Status Code: {StatusCode}", blockRulesResponse.StatusCode);
+            }
         }
     }
 }
