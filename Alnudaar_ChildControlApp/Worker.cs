@@ -1,4 +1,5 @@
 using Alnudaar_ChildControlApp.Models;
+using Alnudaar_ChildControlApp.Services;
 using System.Text.Json;
 
 namespace Alnudaar_ChildControlApp
@@ -8,11 +9,16 @@ namespace Alnudaar_ChildControlApp
         private readonly ILogger<Worker> _logger;
         private readonly DatabaseService _databaseService;
 
-        public Worker(ILogger<Worker> logger, DatabaseService databaseService)
+        private readonly ILogger<ScreenTimeService> _screenTimeLogger;
+        private readonly ILogger<BlockRuleService> _blockRuleLogger;
+        public Worker(ILogger<Worker> logger, ILogger<ScreenTimeService> screenTimeLogger, ILogger<BlockRuleService> blockRuleLogger, DatabaseService databaseService)
         {
             _logger = logger;
+            _screenTimeLogger = screenTimeLogger;
+            _blockRuleLogger = blockRuleLogger;
             _databaseService = databaseService;
         }
+        
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
@@ -23,13 +29,16 @@ namespace Alnudaar_ChildControlApp
                 return;
             }
 
-            _logger.LogInformation("Worker started.");
+            var screenTimeService = new ScreenTimeService(_databaseService, _screenTimeLogger);
+            var blockRuleService = new BlockRuleService(_databaseService, _blockRuleLogger);
 
             while (!stoppingToken.IsCancellationRequested)
             {
+                // Fetch and update device data
                 int deviceId = await FetchAndUpdateDeviceData(deviceName, stoppingToken);
                 if (deviceId > 0)
                 {
+                    // Fetch and save additional data (ScreenTimeSchedules and BlockRules)
                     await FetchAndSaveAdditionalData(deviceId, stoppingToken);
                 }
                 else
@@ -37,6 +46,13 @@ namespace Alnudaar_ChildControlApp
                     _logger.LogWarning("Failed to retrieve DeviceID for device name: {DeviceName}", deviceName);
                 }
 
+                // Enforce screen time schedules
+                await screenTimeService.EnforceScreenTimeSchedulesAsync(stoppingToken);
+
+                // Update blocked websites
+                blockRuleService.UpdateBlockedWebsites();
+
+                // Delay before the next iteration
                 await Task.Delay(TimeSpan.FromMinutes(5), stoppingToken);
             }
         }
@@ -46,13 +62,23 @@ namespace Alnudaar_ChildControlApp
             const string filePath = "device_name.json";
             if (File.Exists(filePath))
             {
-                return File.ReadAllText(filePath);
+                string deviceName = File.ReadAllText(filePath).Trim();
+                if (!string.IsNullOrEmpty(deviceName))
+                {
+                    return deviceName;
+                }
             }
 
             Console.WriteLine("Enter the device name:");
-            string deviceName = Console.ReadLine() ?? string.Empty;
-            File.WriteAllText(filePath, deviceName);
-            return deviceName;
+            string inputDeviceName = Console.ReadLine()?.Trim() ?? string.Empty;
+
+            if (string.IsNullOrEmpty(inputDeviceName))
+            {
+                throw new InvalidOperationException("Device name cannot be empty.");
+            }
+
+            File.WriteAllText(filePath, inputDeviceName);
+            return inputDeviceName;
         }
 
         private async Task<int> FetchAndUpdateDeviceData(string deviceName, CancellationToken stoppingToken)

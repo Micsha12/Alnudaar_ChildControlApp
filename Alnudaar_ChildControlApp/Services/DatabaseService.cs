@@ -314,6 +314,60 @@ namespace Alnudaar_ChildControlApp
 
             _logger.LogInformation("Device saved to Devices table: DeviceID={DeviceID}, Name={Name}, UserID={UserID}", device.DeviceID, device.Name, device.UserID);
         }
+
+        public IEnumerable<ScreenTimeSchedule> GetScreenTimeSchedules()
+        {
+            using var connection = new SqliteConnection($"Data Source={DbFilePath}");
+            connection.Open();
+
+            var command = connection.CreateCommand();
+            command.CommandText = "SELECT * FROM ScreenTimeSchedules";
+
+            using var reader = command.ExecuteReader();
+            var schedules = new List<ScreenTimeSchedule>();
+
+            while (reader.Read())
+            {
+                schedules.Add(new ScreenTimeSchedule
+                {
+                    ScreenTimeScheduleID = reader.GetInt32(0),
+                    UserID = reader.GetInt32(1),
+                    DeviceID = reader.IsDBNull(2) ? null : reader.GetInt32(2),
+                    DayOfWeek = reader.GetString(3),
+                    StartTime = reader.GetString(4),
+                    EndTime = reader.GetString(5)
+                });
+            }
+
+            return schedules;
+        }
+
+        public IEnumerable<BlockRule> GetBlockRules()
+        {
+            using var connection = new SqliteConnection($"Data Source={DbFilePath}");
+            connection.Open();
+
+            var command = connection.CreateCommand();
+            command.CommandText = "SELECT * FROM BlockRule";
+
+            using var reader = command.ExecuteReader();
+            var blockRules = new List<BlockRule>();
+
+            while (reader.Read())
+            {
+                blockRules.Add(new BlockRule
+                {
+                    BlockRuleID = reader.GetInt32(0),
+                    UserID = reader.GetInt32(1),
+                    Type = reader.GetString(2),
+                    Value = reader.GetString(3),
+                    TimeRange = reader.GetString(4),
+                    DeviceID = reader.GetInt32(5)
+                });
+            }
+
+            return blockRules;
+        }
         // Add similar methods for other models like Geofencing, BlockRule, etc.
     }
 }
