@@ -1,5 +1,10 @@
 using System.Diagnostics;
 using Alnudaar_ChildControlApp.Models;
+using System.Threading;
+using System.Windows.Forms;
+using System.Threading.Tasks;
+
+
 
 namespace Alnudaar_ChildControlApp.Services
 {
@@ -7,6 +12,9 @@ namespace Alnudaar_ChildControlApp.Services
     {
         private readonly DatabaseService _databaseService;
         private readonly ILogger<ScreenTimeService> _logger;
+
+        private Thread? _blockFormThread;
+        private BlockForm? _blockForm;
 
         public ScreenTimeService(DatabaseService databaseService, ILogger<ScreenTimeService> logger)
         {
@@ -16,40 +24,26 @@ namespace Alnudaar_ChildControlApp.Services
 
         public async Task EnforceScreenTimeSchedulesAsync(CancellationToken stoppingToken)
         {
-            while (!stoppingToken.IsCancellationRequested)
+            var schedules = _databaseService.GetScreenTimeSchedules();
+            var now = DateTime.Now;
+            var currentDay = now.DayOfWeek.ToString();
+            var currentTime = now.TimeOfDay;
+
+            var isAllowed = schedules.Any(schedule =>
+                schedule.DayOfWeek == currentDay &&
+                TimeSpan.Parse(schedule.StartTime) <= currentTime &&
+                TimeSpan.Parse(schedule.EndTime) >= currentTime);
+
+            var nextAllowed = GetNextRelevantTime(schedules);
+            string nextAllowedTime = nextAllowed.HasValue ? nextAllowed.Value.ToString("f") : "Unknown";
+
+            if (!isAllowed)
             {
-                var schedules = _databaseService.GetScreenTimeSchedules();
-                var nextTime = GetNextRelevantTime(schedules);
-
-                if (nextTime.HasValue)
-                {
-                    var delay = nextTime.Value - DateTime.Now;
-                    _logger.LogInformation("Next screen time check scheduled at: {NextTime}", nextTime.Value);
-
-                    // Wait until the next relevant time
-                    await Task.Delay(delay, stoppingToken);
-                }
-                else
-                {
-                    _logger.LogInformation("No relevant screen time schedules found for today.");
-                    await Task.Delay(TimeSpan.FromHours(1), stoppingToken); // Check again in an hour
-                }
-
-                // Check if the current time is within any allowed schedule
-                var now = DateTime.Now;
-                var currentDay = now.DayOfWeek.ToString();
-                var currentTime = now.TimeOfDay;
-
-                var isAllowed = schedules.Any(schedule =>
-                    schedule.DayOfWeek == currentDay &&
-                    TimeSpan.Parse(schedule.StartTime) <= currentTime &&
-                    TimeSpan.Parse(schedule.EndTime) >= currentTime);
-
-                if (!isAllowed)
-                {
-                    _logger.LogWarning("Screen time exceeded. Locking the session.");
-                    LockWindowsSession();
-                }
+                ShowBlockForm(nextAllowedTime);
+            }
+            else
+            {
+                CloseBlockForm();
             }
         }
 
@@ -82,6 +76,31 @@ namespace Alnudaar_ChildControlApp.Services
                 CreateNoWindow = true,
                 UseShellExecute = false
             });
+        }
+
+        private void ShowBlockForm(string nextAllowedTime)
+        {
+            if (_blockFormThread != null && _blockFormThread.IsAlive)
+                return;
+
+            _blockFormThread = new Thread(() =>
+            {
+                _blockForm = new BlockForm(nextAllowedTime);
+                Application.Run(_blockForm);
+            });
+            _blockFormThread.SetApartmentState(ApartmentState.STA);
+            _blockFormThread.IsBackground = true;
+            _blockFormThread.Start();
+        }
+
+        private void CloseBlockForm()
+        {
+            if (_blockForm != null && _blockForm.InvokeRequired)
+            {
+                _blockForm.Invoke(new Action(() => _blockForm.Close()));
+            }
+            _blockForm = null;
+            _blockFormThread = null;
         }
     }
 }

@@ -16,20 +16,30 @@ namespace Alnudaar_ChildControlApp.Services
 
         public void UpdateBlockedWebsites()
         {
+            Console.WriteLine("UpdateBlockedWebsites CALLED");
+            _logger.LogInformation("UpdateBlockedWebsites called.");
             var blockRules = _databaseService.GetBlockRules();
-            var blockedWebsites = blockRules.Where(rule => rule.Type == "website").Select(rule => rule.Value).ToList();
+            var blockedWebsites = blockRules
+                .Where(rule => rule.Type == "website" && !string.IsNullOrWhiteSpace(rule.Value))
+                .Select(rule => rule.Value.Trim().ToLower())
+                .Distinct()
+                .ToList();
 
             try
             {
                 var hostsFileContent = File.ReadAllLines(HostsFilePath).ToList();
 
-                // Remove previously blocked websites
-                hostsFileContent.RemoveAll(line => line.Contains("127.0.0.1"));
+                // Remove previously blocked websites by this app
+                hostsFileContent.RemoveAll(line => line.Contains("# AlnudaarBlock"));
 
                 // Add new blocked websites
                 foreach (var website in blockedWebsites)
                 {
-                    hostsFileContent.Add($"127.0.0.1 {website}");
+                    hostsFileContent.Add($"127.0.0.1 {website} # AlnudaarBlock");
+                    if (!website.StartsWith("www."))
+                    {
+                        hostsFileContent.Add($"127.0.0.1 www.{website} # AlnudaarBlock");
+                    }
                 }
 
                 File.WriteAllLines(HostsFilePath, hostsFileContent);

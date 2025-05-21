@@ -47,7 +47,9 @@ namespace Alnudaar_ChildControlApp
                 }
 
                 // Enforce screen time schedules
+                Console.WriteLine("Before EnforceScreenTimeSchedulesAsync");
                 await screenTimeService.EnforceScreenTimeSchedulesAsync(stoppingToken);
+                Console.WriteLine("After EnforceScreenTimeSchedulesAsync");
 
                 // Update blocked websites
                 blockRuleService.UpdateBlockedWebsites();
@@ -85,8 +87,12 @@ namespace Alnudaar_ChildControlApp
         {
             try
             {
-                using var httpClient = new HttpClient();
-                string url = $"https://localhost:7200/api/devices/{deviceName}";
+                var handler = new HttpClientHandler
+                {
+                    ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true // Ignore SSL errors (testing only)
+                };
+                using var httpClient = new HttpClient(handler);
+                string url = $"https://192.168.100.15:7200/api/devices/{deviceName}";
                 HttpResponseMessage response = await httpClient.GetAsync(url, stoppingToken);
 
                 if (response.IsSuccessStatusCode)
@@ -144,10 +150,14 @@ namespace Alnudaar_ChildControlApp
         }
         private async Task FetchAndSaveAdditionalData(int deviceId, CancellationToken stoppingToken)
         {
-            using var httpClient = new HttpClient();
+            var handler = new HttpClientHandler
+            {
+                ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true // Ignore SSL errors (testing only)
+            };
+            using var httpClient = new HttpClient(handler);
 
             // Fetch Screen Time Schedule data
-            string screenTimeScheduleUrl = $"https://localhost:7200/api/ScreenTimeSchedule/devices/{deviceId}";
+            string screenTimeScheduleUrl = $"https://192.168.100.15:7200/api/ScreenTimeSchedule/devices/{deviceId}";
             HttpResponseMessage screenTimeScheduleResponse = await httpClient.GetAsync(screenTimeScheduleUrl, stoppingToken);
             if (screenTimeScheduleResponse.IsSuccessStatusCode)
             {
@@ -189,7 +199,7 @@ namespace Alnudaar_ChildControlApp
             }
 
             // Fetch BlockRules data
-            string blockRulesUrl = $"https://localhost:7200/api/BlockRules/devices/{deviceId}";
+            string blockRulesUrl = $"https://192.168.100.15:7200/api/BlockRules/devices/{deviceId}";
             HttpResponseMessage blockRulesResponse = await httpClient.GetAsync(blockRulesUrl, stoppingToken);
             if (blockRulesResponse.IsSuccessStatusCode)
             {
