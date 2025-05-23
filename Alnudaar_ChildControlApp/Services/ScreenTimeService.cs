@@ -50,21 +50,39 @@ namespace Alnudaar_ChildControlApp.Services
         private DateTime? GetNextRelevantTime(IEnumerable<ScreenTimeSchedule> schedules)
         {
             var now = DateTime.Now;
-            var currentDay = now.DayOfWeek.ToString();
+            var nextTimes = new List<DateTime>();
 
-            // Find the next relevant time (StartTime or EndTime)
-            var nextTimes = schedules
-                .Where(schedule => schedule.DayOfWeek == currentDay)
-                .SelectMany(schedule => new[]
+            foreach (var schedule in schedules)
+            {
+                // Skip if StartTime or EndTime is null/empty/whitespace
+                if (string.IsNullOrWhiteSpace(schedule.StartTime) || string.IsNullOrWhiteSpace(schedule.EndTime))
+                    continue;
+
+                for (int i = 0; i < 7; i++)
                 {
-                    DateTime.Today.Add(TimeSpan.Parse(schedule.StartTime)),
-                    DateTime.Today.Add(TimeSpan.Parse(schedule.EndTime))
-                })
-                .Where(time => time > now) // Only consider future times
-                .OrderBy(time => time) // Sort by the nearest time
-                .ToList();
+                    var targetDay = (DayOfWeek)Enum.Parse(typeof(DayOfWeek), schedule.DayOfWeek);
+                    var date = now.Date.AddDays((7 + targetDay - now.DayOfWeek + i) % 7);
 
-            return nextTimes.FirstOrDefault(); // Return the nearest time, or null if none
+                    // TryParse to avoid crashing on bad format
+                    if (TimeSpan.TryParse(schedule.StartTime, out var startTs))
+                    {
+                        var startDateTime = date.Add(startTs);
+                        if (startDateTime > now)
+                            nextTimes.Add(startDateTime);
+                    }
+                    if (TimeSpan.TryParse(schedule.EndTime, out var endTs))
+                    {
+                        var endDateTime = date.Add(endTs);
+                        if (endDateTime > now)
+                            nextTimes.Add(endDateTime);
+                    }
+
+                    if (date > now.Date)
+                        break;
+                }
+            }
+
+            return nextTimes.Count > 0 ? nextTimes.Min() : (DateTime?)null;
         }
 
         private void LockWindowsSession()
