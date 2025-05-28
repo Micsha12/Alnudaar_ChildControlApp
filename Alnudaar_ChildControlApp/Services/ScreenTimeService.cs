@@ -104,7 +104,22 @@ namespace Alnudaar_ChildControlApp.Services
             _blockFormThread = new Thread(() =>
             {
                 _blockForm = new BlockForm(nextAllowedTime);
+
+                // Timer to lock the session after 5 seconds
+                var timer = new System.Windows.Forms.Timer();
+                timer.Interval = 5000;
+                timer.Tick += (s, e) =>
+                {
+                    timer.Stop();
+                    LockWindowsSession();
+                    // After locking, close the form and reset state
+                    CloseBlockForm();
+                };
+                timer.Start();
+
                 Application.Run(_blockForm);
+                // When the form is closed, reset state
+                CloseBlockForm();
             });
             _blockFormThread.SetApartmentState(ApartmentState.STA);
             _blockFormThread.IsBackground = true;
@@ -113,11 +128,18 @@ namespace Alnudaar_ChildControlApp.Services
 
         private void CloseBlockForm()
         {
-            if (_blockForm != null && _blockForm.InvokeRequired)
+            if (_blockForm != null)
             {
-                _blockForm.Invoke(new Action(() => _blockForm.Close()));
+                if (_blockForm.InvokeRequired)
+                {
+                    _blockForm.Invoke(new Action(() => _blockForm.Close()));
+                }
+                else
+                {
+                    _blockForm.Close();
+                }
+                _blockForm = null;
             }
-            _blockForm = null;
             _blockFormThread = null;
         }
     }

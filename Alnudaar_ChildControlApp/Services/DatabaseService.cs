@@ -368,6 +368,95 @@ namespace Alnudaar_ChildControlApp
 
             return blockRules;
         }
+
+        public void UpsertAppUsageReport(int userId, int deviceId, DateTime timestamp, string appName, int usageDuration)
+        {
+            using var connection = new SqliteConnection($"Data Source={DbFilePath}");
+            connection.Open();
+
+            // Try to update existing entry for the same second
+            using (var updateCmd = connection.CreateCommand())
+            {
+                updateCmd.CommandText = @"
+                    UPDATE AppUsageReport
+                    SET UsageDuration = UsageDuration + @UsageDuration
+                    WHERE UserID = @UserID AND DeviceID = @DeviceID AND Timestamp = @Timestamp AND AppName = @AppName";
+                updateCmd.Parameters.AddWithValue("@UsageDuration", usageDuration);
+                updateCmd.Parameters.AddWithValue("@UserID", userId);
+                updateCmd.Parameters.AddWithValue("@DeviceID", deviceId);
+                updateCmd.Parameters.AddWithValue("@Timestamp", timestamp); // Use the full timestamp
+                updateCmd.Parameters.AddWithValue("@AppName", appName);
+                int rows = updateCmd.ExecuteNonQuery();
+
+                if (rows == 0)
+                {
+                    // Insert new entry if update did not affect any row
+                    using (var insertCmd = connection.CreateCommand())
+                    {
+                        insertCmd.CommandText = @"
+                            INSERT INTO AppUsageReport (UserID, DeviceID, Timestamp, AppName, UsageDuration)
+                            VALUES (@UserID, @DeviceID, @Timestamp, @AppName, @UsageDuration)";
+                        insertCmd.Parameters.AddWithValue("@UserID", userId);
+                        insertCmd.Parameters.AddWithValue("@DeviceID", deviceId);
+                        insertCmd.Parameters.AddWithValue("@Timestamp", timestamp); // Use the full timestamp
+                        insertCmd.Parameters.AddWithValue("@AppName", appName);
+                        insertCmd.Parameters.AddWithValue("@UsageDuration", usageDuration);
+                        insertCmd.ExecuteNonQuery();
+                    }
+                }
+            }
+        }
+
+        public Device? GetDeviceById(int deviceId)
+        {
+            using var connection = new SqliteConnection($"Data Source={DbFilePath}");
+            connection.Open();
+
+            using var command = connection.CreateCommand();
+            command.CommandText = "SELECT DeviceID, Name, UserID FROM Devices WHERE DeviceID = @DeviceID";
+            command.Parameters.AddWithValue("@DeviceID", deviceId);
+
+            using var reader = command.ExecuteReader();
+            if (reader.Read())
+            {
+                return new Device
+                {
+                    DeviceID = reader.GetInt32(0),
+                    Name = reader.GetString(1),
+                    UserID = reader.GetInt32(2)
+                };
+            }
+            return null;
+        }
+
+        public List<AppUsageReport> GetAppUsageReportsForDate(DateTime date)
+        {
+            var reports = new List<AppUsageReport>();
+            using var connection = new SqliteConnection($"Data Source={DbFilePath}");
+            connection.Open();
+
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText = @"
+                SELECT UserID, DeviceID, Timestamp, AppName, UsageDuration
+                FROM AppUsageReport
+                WHERE Timestamp >= @StartOfDay AND Timestamp < @StartOfNextDay";
+            cmd.Parameters.AddWithValue("@StartOfDay", date.Date);
+            cmd.Parameters.AddWithValue("@StartOfNextDay", date.Date.AddDays(1));
+
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                reports.Add(new AppUsageReport
+                {
+                    UserID = reader.GetInt32(0),
+                    DeviceID = reader.GetInt32(1),
+                    Timestamp = reader.GetDateTime(2),
+                    AppName = reader.GetString(3),
+                    UsageDuration = TimeSpan.FromSeconds(reader.GetInt32(4))
+                });
+            }
+            return reports;
+        }
         // Add similar methods for other models like Geofencing, BlockRule, etc.
     }
 }

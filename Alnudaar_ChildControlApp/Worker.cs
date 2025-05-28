@@ -1,6 +1,8 @@
 using Alnudaar_ChildControlApp.Models;
 using Alnudaar_ChildControlApp.Services;
 using System.Text.Json;
+using System.Text;
+using System.Xml;
 
 namespace Alnudaar_ChildControlApp
 {
@@ -11,6 +13,7 @@ namespace Alnudaar_ChildControlApp
 
         private readonly ILogger<ScreenTimeService> _screenTimeLogger;
         private readonly ILogger<BlockRuleService> _blockRuleLogger;
+        private AppUsageTracker? _appUsageTracker;
         public Worker(ILogger<Worker> logger, ILogger<ScreenTimeService> screenTimeLogger, ILogger<BlockRuleService> blockRuleLogger, DatabaseService databaseService)
         {
             _logger = logger;
@@ -18,7 +21,7 @@ namespace Alnudaar_ChildControlApp
             _blockRuleLogger = blockRuleLogger;
             _databaseService = databaseService;
         }
-        
+
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
@@ -32,10 +35,14 @@ namespace Alnudaar_ChildControlApp
             var screenTimeService = new ScreenTimeService(_databaseService, _screenTimeLogger);
             var blockRuleService = new BlockRuleService(_databaseService, _blockRuleLogger);
 
+            int deviceId = await FetchAndUpdateDeviceData(deviceName, stoppingToken);
+            int userId = GetUserIdForDevice(deviceId);
+            _appUsageTracker = new AppUsageTracker(_databaseService, userId, deviceId);
+
             while (!stoppingToken.IsCancellationRequested)
             {
                 // Fetch and update device data
-                int deviceId = await FetchAndUpdateDeviceData(deviceName, stoppingToken);
+                deviceId = await FetchAndUpdateDeviceData(deviceName, stoppingToken);
                 if (deviceId > 0)
                 {
                     // Fetch and save additional data (ScreenTimeSchedules and BlockRules)
@@ -47,12 +54,25 @@ namespace Alnudaar_ChildControlApp
                 }
 
                 // Enforce screen time schedules
-                Console.WriteLine("Before EnforceScreenTimeSchedulesAsync");
                 await screenTimeService.EnforceScreenTimeSchedulesAsync(stoppingToken);
-                Console.WriteLine("After EnforceScreenTimeSchedulesAsync");
 
                 // Update blocked websites
                 blockRuleService.UpdateBlockedWebsites();
+
+                if (DateTime.Now.Hour == 23 && DateTime.Now.Minute == 59)
+                {
+                    _appUsageTracker?.SaveDailyUsageToDb();
+
+                    // Fetch all reports for today from the database
+                    var reports = _databaseService.GetAppUsageReportsForDate(DateTime.Now.Date);
+
+                    if (reports != null && reports.Count > 0)
+                    {
+                        Console.WriteLine("Before SendAppUsageReportsToServerAsync");
+                        await SendAppUsageReportsToServerAsync(reports, "https://192.168.100.15:7200/api/appusagereport", stoppingToken);
+                        Console.WriteLine("After SendAppUsageReportsToServerAsync");
+                    }
+                }
 
                 // Delay before the next iteration
                 await Task.Delay(TimeSpan.FromMinutes(1), stoppingToken);
@@ -114,14 +134,16 @@ namespace Alnudaar_ChildControlApp
                         // Save the user if it doesn't exist
                         if (!_databaseService.UserExists(device.UserID))
                         {
-                            var user = new User
+                            var user = await FetchUserFromServerAsync(device.UserID, stoppingToken);
+                            if (user != null)
                             {
-                                UserID = device.UserID,
-                                UserName = "DefaultUser", // Replace with actual user data if available
-                                Email = "default@example.com" // Replace with actual email if available
-                            };
-                            _databaseService.SaveUser(user);
-                            _logger.LogInformation("User added: UserID={UserID}", user.UserID);
+                                _databaseService.SaveUser(user);
+                                _logger.LogInformation("User added: UserID={UserID}, UserName={UserName}, Email={Email}", user.UserID, user.UserName, user.Email);
+                            }
+                            else
+                            {
+                                _logger.LogWarning("User with UserID={UserID} could not be fetched from server.", device.UserID);
+                            }
                         }
 
                         // Save the device
@@ -147,6 +169,35 @@ namespace Alnudaar_ChildControlApp
             }
 
             return 0; // Return 0 if the DeviceID could not be retrieved
+        }
+
+        private async Task<User?> FetchUserFromServerAsync(int userId, CancellationToken stoppingToken)
+        {
+            var handler = new HttpClientHandler
+            {
+                ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true // Ignore SSL errors (testing only)
+            };
+            using var httpClient = new HttpClient(handler);
+
+            string url = $"https://192.168.100.15:7200/api/users/{userId}";
+            HttpResponseMessage response = await httpClient.GetAsync(url, stoppingToken);
+
+            if (response.IsSuccessStatusCode)
+            {
+                string jsonData = await response.Content.ReadAsStringAsync(stoppingToken);
+                var options = new JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true,
+                    PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+                };
+                var user = System.Text.Json.JsonSerializer.Deserialize<User>(jsonData, options);
+                return user;
+            }
+            else
+            {
+                _logger.LogWarning("Failed to fetch user info for UserID={UserID}. Status Code: {StatusCode}", userId, response.StatusCode);
+                return null;
+            }
         }
         private async Task FetchAndSaveAdditionalData(int deviceId, CancellationToken stoppingToken)
         {
@@ -226,6 +277,51 @@ namespace Alnudaar_ChildControlApp
             {
                 _logger.LogWarning("Failed to fetch BlockRules data. Status Code: {StatusCode}", blockRulesResponse.StatusCode);
             }
+        }
+
+        public async Task<bool> SendAppUsageReportsToServerAsync(IEnumerable<AppUsageReport> reports, string apiUrl, CancellationToken stoppingToken)
+        {
+            var handler = new HttpClientHandler
+            {
+                ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true // Ignore SSL errors (testing only)
+            };
+            using var httpClient = new HttpClient(handler);
+
+            // Prepare payload: convert UsageDuration to minutes (int)
+            var payload = reports.Select(r => new
+            {
+                r.UserID,
+                r.DeviceID,
+                r.Timestamp,
+                r.AppName,
+                UsageDuration = r.UsageDuration.ToString() // e.g., "00:15:00"
+            }).ToList();
+
+            var json = JsonSerializer.Serialize(payload);
+
+            using var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+            var response = await httpClient.PostAsync(apiUrl, content, stoppingToken);
+            _logger.LogInformation("AppUsageReport POST status: {StatusCode}, content: {Content}", response.StatusCode, await response.Content.ReadAsStringAsync());
+            return response.IsSuccessStatusCode;
+        }
+
+        private int GetUserIdForDevice(int deviceId)
+        {
+            // Example: fetch from your local database
+            var device = _databaseService.GetDeviceById(deviceId);
+            return device?.UserID ?? 0;
+        }
+        
+        public override async Task StopAsync(CancellationToken cancellationToken)
+        {
+            _appUsageTracker?.SaveDailyUsageToDb();
+            var reports = _databaseService.GetAppUsageReportsForDate(DateTime.Now.Date);
+            if (reports != null && reports.Count > 0)
+            {
+                await SendAppUsageReportsToServerAsync(reports, "https://192.168.100.15:7200/api/appusagereport", cancellationToken);
+            }
+            await base.StopAsync(cancellationToken);
         }
     }
 }
