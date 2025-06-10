@@ -85,12 +85,12 @@ namespace Alnudaar_ChildControlApp.Services
             return nextTimes.Count > 0 ? nextTimes.Min() : (DateTime?)null;
         }
 
-        private void LockWindowsSession()
+        private void LogoffWindowsSession()
         {
             Process.Start(new ProcessStartInfo
             {
-                FileName = "rundll32.exe",
-                Arguments = "user32.dll,LockWorkStation",
+                FileName = "shutdown",
+                Arguments = "/l", // log off
                 CreateNoWindow = true,
                 UseShellExecute = false
             });
@@ -105,20 +105,17 @@ namespace Alnudaar_ChildControlApp.Services
             {
                 _blockForm = new BlockForm(nextAllowedTime);
 
-                // Timer to lock the session after 5 seconds
                 var timer = new System.Windows.Forms.Timer();
                 timer.Interval = 5000;
                 timer.Tick += (s, e) =>
                 {
                     timer.Stop();
-                    LockWindowsSession();
-                    // After locking, close the form and reset state
+                    LogoffWindowsSession();
                     CloseBlockForm();
                 };
                 timer.Start();
 
                 Application.Run(_blockForm);
-                // When the form is closed, reset state
                 CloseBlockForm();
             });
             _blockFormThread.SetApartmentState(ApartmentState.STA);

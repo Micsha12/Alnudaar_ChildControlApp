@@ -319,6 +319,7 @@ namespace Alnudaar_ChildControlApp
             var reports = _databaseService.GetAppUsageReportsForDate(DateTime.Now.Date);
             if (reports != null && reports.Count > 0)
             {
+                Console.WriteLine("Before SendAppUsageReportsToServerAsync2");
                 await SendAppUsageReportsToServerAsync(reports, "https://192.168.100.15:7200/api/appusagereport", cancellationToken);
             }
             await base.StopAsync(cancellationToken);

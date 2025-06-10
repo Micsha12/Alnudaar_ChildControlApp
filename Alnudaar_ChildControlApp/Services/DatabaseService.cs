@@ -371,34 +371,36 @@ namespace Alnudaar_ChildControlApp
 
         public void UpsertAppUsageReport(int userId, int deviceId, DateTime timestamp, string appName, int usageDuration)
         {
+            var dateOnly = timestamp.Date;
             using var connection = new SqliteConnection($"Data Source={DbFilePath}");
             connection.Open();
 
-            // Try to update existing entry for the same second
             using (var updateCmd = connection.CreateCommand())
             {
                 updateCmd.CommandText = @"
                     UPDATE AppUsageReport
                     SET UsageDuration = UsageDuration + @UsageDuration
-                    WHERE UserID = @UserID AND DeviceID = @DeviceID AND Timestamp = @Timestamp AND AppName = @AppName";
+                    WHERE UserID = @UserID AND DeviceID = @DeviceID AND AppName = @AppName AND date(Timestamp) = @DateOnly";
                 updateCmd.Parameters.AddWithValue("@UsageDuration", usageDuration);
                 updateCmd.Parameters.AddWithValue("@UserID", userId);
                 updateCmd.Parameters.AddWithValue("@DeviceID", deviceId);
-                updateCmd.Parameters.AddWithValue("@Timestamp", timestamp); // Use the full timestamp
                 updateCmd.Parameters.AddWithValue("@AppName", appName);
+                updateCmd.Parameters.AddWithValue("@DateOnly", dateOnly);
+
                 int rows = updateCmd.ExecuteNonQuery();
 
                 if (rows == 0)
                 {
-                    // Insert new entry if update did not affect any row
                     using (var insertCmd = connection.CreateCommand())
                     {
                         insertCmd.CommandText = @"
                             INSERT INTO AppUsageReport (UserID, DeviceID, Timestamp, AppName, UsageDuration)
-                            VALUES (@UserID, @DeviceID, @Timestamp, @AppName, @UsageDuration)";
+                            VALUES (@UserID, @DeviceID, @Timestamp, @AppName, @UsageDuration)
+                            ON CONFLICT(UserID, DeviceID, AppName, Timestamp)
+                            DO UPDATE SET UsageDuration = UsageDuration + excluded.UsageDuration;";
                         insertCmd.Parameters.AddWithValue("@UserID", userId);
                         insertCmd.Parameters.AddWithValue("@DeviceID", deviceId);
-                        insertCmd.Parameters.AddWithValue("@Timestamp", timestamp); // Use the full timestamp
+                        insertCmd.Parameters.AddWithValue("@Timestamp", dateOnly);
                         insertCmd.Parameters.AddWithValue("@AppName", appName);
                         insertCmd.Parameters.AddWithValue("@UsageDuration", usageDuration);
                         insertCmd.ExecuteNonQuery();
